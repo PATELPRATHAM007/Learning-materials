@@ -62,7 +62,7 @@ flowchart TD
 4. [Phase 4: Natural Language Processing (NLP)](#phase-4-natural-language-processing-nlp)
 5. [Phase 5: Deep Learning & Neural Networks](#phase-5-deep-learning--neural-networks)
 6. [Phase 6: Transformers & Attention Mechanism](#phase-6-transformers--attention-mechanism)
-7. [Phase 7: Large Language Models (LLMs)](#phase-7-large-language-models-llms)
+7. [Phase 7: Large Language Models (LLMs) & Small Language Models (SLMs)](#phase-7-large-language-models-llms--small-language-models-slms)
 8. [Phase 8: Prompt Engineering & LLM APIs](#phase-8-prompt-engineering--llm-apis)
 9. [Phase 9: Embeddings & Vector Databases](#phase-9-embeddings--vector-databases)
 10. [Phase 10: Retrieval-Augmented Generation (RAG) & Advanced RAG](#phase-10-retrieval-augmented-generation-rag--advanced-rag)
@@ -434,13 +434,29 @@ Input Tokens ──► Token Embeddings + Positional Encodings
 - [ ] **KV Cache (Key-Value Cache)**:
   - Why naive autoregressive generation is redundant ($O(N^2)$ forward passes)
   - Caching previously computed Keys and Values across generation steps to reduce generation to $O(N)$
-  - Memory footprint of KV cache: $2 \times 2 \times n_{\text{layers}} \times n_{\text{heads}} \times d_{\text{head}} \times \text{seq\_len} \times \text{batch\_size}$ bytes
+  - **Memory footprint formula of KV cache**:
+    $$\text{Memory}_{\text{KV}} = 2 \times 2 \times n_{\text{layers}} \times n_{\text{heads}} \times d_{\text{head}} \times L_{\text{seq}} \times B_{\text{batch}} \times P_{\text{bytes}}$$
+    - Factor $2$: Stores both Key and Value tensors
+    - Factor $2$: Precision multiplier ($2$ bytes for FP16/BF16, $1$ byte for FP8, $0.5$ bytes for INT4)
+    - $n_{\text{layers}}$: Number of transformer layers
+    - $n_{\text{heads}}$: Number of KV heads ($n_{\text{heads}} = n_{\text{q}}$ in MHA; $n_{\text{kv}} \ll n_{\text{q}}$ in GQA)
+    - $d_{\text{head}}$: Projection dimension per attention head ($d_{\text{model}} / n_{\text{q}}$)
+    - $L_{\text{seq}}$: Total sequence context length (prompt tokens + generated tokens)
+    - $B_{\text{batch}}$: Concurrent inference batch size
+    - $P_{\text{bytes}}$: Byte width of storage format
+  - KV Cache challenges: Memory fragmentation, GPU VRAM exhaustion, and context window bottlenecks
 - [ ] Attention Variants for Memory Efficiency:
   - **Multi-Query Attention (MQA)**: Single Key and Value head shared across all Query heads
   - **Grouped-Query Attention (GQA)**: Intermediate grouping (e.g., Llama 3, Mistral) reducing KV cache size significantly
 - [ ] **FlashAttention** (FlashAttention-1, 2 & 3):
   - IO-awareness: Tiling attention computation to keep data in fast GPU SRAM and minimize slow High Bandwidth Memory (HBM) reads/writes
   - Exact attention calculation without approximation
+- [ ] **Mixture of Experts (MoE) Architecture**:
+  - Dense vs Sparse computation: Total parameters vs Active parameters per token
+  - Router/Gating network: Softmax routing with top-$k$ expert selection
+  - Sparse MoE architectures: Mixtral 8x7B (8 experts, 2 active), DeepSeek-V3 (256 routed experts + 1 shared expert, 8 active)
+  - Expert load balancing auxiliary loss and routing collapse prevention
+  - Expert parallelization across distributed GPUs
 - [ ] Long-context extension techniques: YaRN, RoPE frequency scaling, LongLoRA
 - [ ] Vision Transformers (ViT) basics: Patch projection, Class token, Image-to-sequence modeling
 
@@ -448,11 +464,11 @@ Input Tokens ──► Token Embeddings + Positional Encodings
 
 ---
 
-## Phase 7: Large Language Models (LLMs)
+## Phase 7: Large Language Models (LLMs) & Small Language Models (SLMs)
 
-Move from theoretical transformer layers to understanding commercial and open-weights Large Language Models.
+Move from theoretical transformer layers to understanding commercial frontier models, open-weights LLMs, Small Language Models (SLMs), reasoning architectures, and high-performance inference engines like vLLM.
 
-### 20. LLM Fundamentals & Lifecycle
+### 20. LLM Fundamentals, Lifecycle & Emerging Paradigms
 - [ ] What is an LLM? Autoregressive Next-Token Predictor trained on internet-scale text corpora
 - [ ] **Pretraining**: Unsupervised training on trillions of tokens (C4, Common Crawl, RefinedWeb, FineWeb) to learn world knowledge and syntax
 - [ ] **Instruction Tuning**: Transforming a raw base model (which simply completes text) into a helpful conversational assistant
@@ -461,6 +477,14 @@ Move from theoretical transformer layers to understanding commercial and open-we
   - **RLHF (Reinforcement Learning from Human Feedback)**: Reward model training + PPO (Proximal Policy Optimization)
   - **DPO (Direct Preference Optimization)**: Closed-form implicit reward modeling eliminating the unstable separate reward model
   - **KTO (Kahneman-Tversky Optimization)**: Alignment with binary thumbs-up/thumbs-down signals
+- [ ] **Reasoning Models & Test-Time Compute (Thinking LLMs)**:
+  - System 1 (Intuitive/Fast token generation) vs System 2 (Deliberative, multi-step Chain-of-Thought reasoning)
+  - **DeepSeek-R1** and **OpenAI o1 / o3-mini**: Test-time compute scaling laws (spending more inference tokens on deep thinking)
+  - **GRPO (Group Relative Policy Optimization)**: Pure reinforcement learning with rule-based verifiers on math and code without separate reward models
+  - Distilling reasoning capabilities into smaller dense models (e.g., DeepSeek-R1-Distill-Qwen and Llama series)
+- [ ] **Prompt & Context Caching**:
+  - Anthropic Prompt Caching, OpenAI Prompt Caching, Google Gemini Context Caching
+  - Reusing KV cache blocks across user turns to slash input token costs by up to 90% and reduce Time-to-First-Token (TTFT)
 - [ ] Tokenization Algorithms in Modern LLMs:
   - Byte-Pair Encoding (**BPE**) (GPT-4, Llama)
   - **WordPiece** (BERT)
@@ -477,36 +501,52 @@ Move from theoretical transformer layers to understanding commercial and open-we
 - [ ] Hallucination: Root causes (stochastic generation, lack of epistemic uncertainty, training data conflicts)
 - [ ] Model Quantization: Weight representations in FP32, FP16, BF16, INT8, INT4, AWQ, GPTQ, EXL2, GGUF
 
-### 21. Open-Weights & Proprietary Model Landscape
+### 21. Open-Weights, Proprietary Models & Small Language Models (SLMs)
 - [ ] **Proprietary Frontier Models**:
   - OpenAI GPT family (GPT-4o, o1, o3-mini)
   - Anthropic Claude family (Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus)
   - Google Gemini family (Gemini 1.5 Pro, Gemini 1.5 Flash, Gemini 2.0 Flash)
-- [ ] **Open-Weights Ecosystem**:
-  - Meta Llama family (Llama 3, Llama 3.1, Llama 3.3)
-  - Alibaba Qwen family (Qwen 2.5, Qwen Coder)
+- [ ] **Open-Weights Frontier Ecosystem**:
+  - Meta Llama family (Llama 3, Llama 3.1, Llama 3.3 70B)
+  - Alibaba Qwen family (Qwen 2.5, Qwen Coder, Qwen Math)
   - Mistral AI family (Mistral 7B, Mixtral 8x7B MoE, Mistral Large)
-  - DeepSeek family (DeepSeek-V3, DeepSeek-R1 reasoning models)
-  - Google Gemma family (Gemma 2 9B, 27B)
-  - NVIDIA Nemotron family
+  - DeepSeek family (DeepSeek-V3 671B MoE, DeepSeek-R1 reasoning models)
+- [ ] **Small Language Models (SLMs) - The Efficient Edge Frontier**:
+  - What qualifies as an SLM? Sub-10B parameter models (0.5B to 9B) designed for efficiency, edge devices, and task specialization
+  - Why SLMs are critical:
+    - Ultra-low latency (<20ms TTFT) and fractional token costs
+    - Edge and On-Device deployment: Running locally on mobile (iOS/Android), Apple Silicon (MLX), laptops, and offline private networks
+    - Task-specific fine-tuning: SLMs matching or beating GPT-4 on narrow domain tasks (SQL generation, JSON extraction, entity classification)
+    - Speculative Decoding: Using an SLM draft model to propose tokens verified by a larger LLM in parallel
+    - Knowledge Distillation: Teacher (LLM) $\rightarrow$ Student (SLM) compression pipelines
+  - Leading SLM Families:
+    - **Microsoft Phi Family**: Phi-3-Mini (3.8B), Phi-3.5, Phi-4 (14B) - pioneered synthetic "Textbooks Are All You Need" pretraining
+    - **Google Gemma 2 Family**: Gemma 2 2B and 9B - distilled representations, sliding window local/global attention
+    - **Alibaba Qwen 2.5 SLMs**: Qwen 2.5 (0.5B, 1.5B, 3B, 7B) - high coding and multilingual density
+    - **Meta Llama 3.2 Family**: Llama 3.2 1B and 3B - lightweight models designed specifically for edge and mobile workloads
+    - **Hugging Face SmollLM / SmollLM2**: Curated open web and synthetic tokens for edge intelligence
 
-### 22. Working with LLM APIs & Local Inference Engines
-- [ ] Unified API patterns across OpenAI, Anthropic, and Google Gemini SDKs
-- [ ] Local high-performance inference engines:
-  - **vLLM**: PagedAttention (virtual memory management for KV cache), continuous batching
-  - **Ollama**: Local CPU/GPU GGUF runner for rapid prototyping
-  - **SGLang**: Fast execution engine for structured outputs and multi-turn workflows
-- [ ] Authentication, request headers, error status codes handling
-- [ ] **Streaming Responses**: Server-Sent Events (SSE), decoding chunk deltas in real-time
-- [ ] **Structured Outputs**:
-  - OpenAI Structured Outputs (`response_format={"type": "json_schema", ...}`)
-  - Guided generation with Outlines / Instructor / Pydantic
-  - Constrained decoding using finite state machines (FSM)
-- [ ] **Function Calling & Tool Calling**:
-  - Providing JSON schemas of functions to the LLM
-  - Parsing the tool call arguments emitted by the model
-  - Executing local Python code and feeding the tool result back into conversation history
-- [ ] Operational considerations: Exponential backoff, jitter, rate-limit handlers (`tenacity`), token budgeting, token usage and cost accounting
+### 22. High-Performance LLM Inference: vLLM & Serving Engines
+- [ ] **vLLM (The Industry-Standard High-Throughput Inference Engine)**:
+  - **PagedAttention**: Dynamic virtual memory allocation for KV cache inspired by operating system paging. Completely eliminates external fragmentation and drops memory waste from >60% to <4%, enabling up to 4x higher concurrency.
+  - **Continuous Batching (Iteration-Level Scheduling)**: Dynamically interleaves incoming requests at the token generation step rather than waiting for entire sequence batches to complete.
+  - **Chunked Prefill**: Splits long prompt prefill tokens into manageable chunks and interleaves them with token decode steps, smoothing out Time-to-First-Token (TTFT) and inter-token latency spikes.
+  - **Automatic Prefix Caching (APC)**: Caches KV blocks for shared prompts (system prompts, few-shot examples, multi-turn chat history) across distinct queries without redundant compute.
+  - **Speculative Decoding in vLLM**: Using a small draft SLM (e.g. Qwen-2.5-0.5B) to propose $K$ tokens per step, verified in a single forward pass by the target LLM.
+  - **Multi-GPU Parallelism**: Tensor Parallelism (`--tensor-parallel-size`) for single-node multi-GPU and Pipeline Parallelism (`--pipeline-parallel-size`).
+  - **Quantization Support**: Native FP8, AWQ, GPTQ, and BitsAndBytes 4-bit serving.
+  - **Production Server**: Launching via `vllm.entrypoints.openai.api_server` with OpenAI-compatible endpoints (`/v1/chat/completions`), guided JSON decoding, and Prometheus `/metrics`.
+- [ ] Alternative Local & Edge Serving Engines:
+  - **Ollama**: Local CPU/GPU GGUF runner for rapid prototyping and offline edge inference
+  - **SGLang**: High-speed engine with RadixAttention for complex multi-turn and structured workflows
+  - **TensorRT-LLM & Triton Inference Server**: Maximum kernel optimization on NVIDIA hardware
+  - **llama.cpp / MLX**: C++ and Apple Silicon metal acceleration for local SLM/LLM execution
+- [ ] Working with Cloud LLM APIs:
+  - Unified SDK patterns across OpenAI, Anthropic, and Google Gemini
+  - Streaming responses (Server-Sent Events), request headers, authentication
+  - Structured outputs (OpenAI JSON Schema, Instructor, Pydantic v2)
+  - Function calling and Tool calling protocols
+  - Operational resilience: Exponential backoff, jitter, rate-limit handlers (`tenacity`), token usage and cost accounting
 
 ---
 
@@ -534,6 +574,9 @@ Prompt engineering is programming an LLM through natural language, structured fo
 - [ ] Prompt Injection & Jailbreaks:
   - Direct injection: "Ignore all previous instructions..."
   - Indirect injection: Malicious text inside external websites/PDFs processed by RAG
+- [ ] **Tool Calling Protocols & Model Context Protocol (MCP)**:
+  - Transitioning from vendor-locked function calling to the standardized **Model Context Protocol (MCP)**
+  - Schema definition, parameter validation, and dynamic runtime tool registration
 - [ ] Defense strategies: System prompt hardening, XML tag isolation, output verification guardrails (NeMo Guardrails, Llama Guard)
 
 > 🎯 **Practical Milestone 5**: Build an end-to-end customer support triage agent using the OpenAI or Anthropic API that accepts raw user emails, strictly adheres to a Pydantic schema for classification, extracts entity details, detects sentiment/urgency, and routes complaints to appropriate departments with automated validation.
@@ -668,7 +711,7 @@ flowchart LR
 - [ ] **Sparse Retrieval**: BM25 (Best Matching 25) probabilistic keyword matching
 - [ ] **Hybrid Search**: Combining Dense (semantic) + Sparse (lexical BM25) to capture both conceptual intent and exact product codes/names
 - [ ] **Reciprocal Rank Fusion (RRF)**:
-  $$\text{RRF\_Score}(d \in D) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
+  $$\operatorname{RRF-Score}(d \in D) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
   (combining rankings from different search mechanisms without calibrating raw score distributions)
 - [ ] **Query Expansion & Rewriting**:
   - LLM-based query reformulator: Turning ambiguous conversational questions into standalone search queries
@@ -937,17 +980,34 @@ flowchart TD
   - **Plan-and-Solve**: Creating an explicit execution plan before invoking tools
   - **Reflexion**: Storing self-critique memories across failed attempts to improve subsequent actions
 
-### 49. Agent Protocols & Frameworks
-- [ ] **Model Context Protocol (MCP)**:
-  - The open standard introduced by Anthropic for connecting AI models to data sources and tools
-  - MCP Architecture: MCP Host (Client) ↔ MCP Client ↔ MCP Server
-  - MCP Primitives: Resources (data), Prompts (templates), Tools (executable functions)
-  - Building custom MCP servers in Python with `fastmcp`
-- [ ] Framework comparisons:
-  - **LangGraph**: Maximum control, deterministic state graphs, enterprise-ready
-  - **CrewAI**: Role-playing autonomous agents (Task, Agent, Crew)
-  - **AutoGen (Microsoft)**: Conversable multi-agent conversations
-  - **OpenAI Agents SDK / Swarm**: Lightweight agent orchestration
+### 49. Agent Protocols, Frameworks & Model Context Protocol (MCP)
+- [ ] **Model Context Protocol (MCP) - Universal Standard for AI Connectivity**:
+  - What is MCP? An open protocol introduced by Anthropic that standardizes how AI models connect to external data sources, enterprise tools, and execution environments
+  - Why MCP is revolutionary: Eliminates the $M \times N$ custom integration bottleneck between AI clients (Claude Desktop, Cursor, LangGraph, custom agents) and tools (PostgreSQL, Git, Slack, internal APIs)
+  - **MCP Architecture**:
+    - **MCP Host**: The application runtime and UI where the AI model executes (e.g., Claude Desktop, IDEs, LangGraph agents)
+    - **MCP Client**: The protocol connector maintaining persistent 1:1 sessions with individual MCP servers
+    - **MCP Server**: Lightweight, modular programs exposing specific tools, resources, and prompt templates
+  - **The Three Core MCP Primitives**:
+    1. **Tools**: Executable functions with Pydantic/JSON Schema parameters that models can invoke to take actions (e.g., `execute_sql`, `create_github_issue`, `search_knowledgebase`)
+    2. **Resources**: URI-addressable, read-only data sources (e.g., `postgres://public/schema`, `file:///logs/app.log`) streamable into model context
+    3. **Prompts**: Standardized server-provided prompt workflows and slash commands exposed to clients
+  - **MCP Transport Protocols**:
+    - **`stdio` Transport**: Standard input/output process communication. Subprocesses run locally on the same machine with zero network exposure and strict OS sandboxing
+    - **`SSE` (Server-Sent Events) over HTTP Transport**: Network-based streaming protocol allowing remote, distributed, and containerized microservice MCP servers
+  - **Security & Governance in MCP**:
+    - Explicit human approval prompts before invoking sensitive tools
+    - Scoped capabilities and least-privilege token access
+    - Sandboxing execution environments to prevent privilege escalation
+  - **Developing MCP Applications in Python**:
+    - Building fast MCP servers using `fastmcp` (`@mcp.tool()`, `@mcp.resource()`, `@mcp.prompt()`)
+    - Integrating MCP servers into LangChain via `langchain-mcp-adapters`
+    - Consuming remote MCP servers within LangGraph agent state workflows
+- [ ] Agent Framework Comparisons:
+  - **LangGraph**: Maximum control, deterministic state graphs, cyclic loops, enterprise-ready persistence
+  - **CrewAI**: Role-playing autonomous agents (Task, Agent, Crew) with structured delegation
+  - **AutoGen (Microsoft)**: Conversable multi-agent conversations and code execution environments
+  - **OpenAI Agents SDK / Swarm**: Lightweight, educational agent orchestration patterns
 
 ### 50. Multi-Agent Design Patterns
 - [ ] Single-Agent vs Multi-Agent Systems: Why specialized agents with small system prompts outperform single monolithic prompts
@@ -973,22 +1033,41 @@ Moving GenAI prototypes from local notebooks to enterprise scale requires solid 
 - [ ] Asynchronous task queues: **Celery** or **ARQ** with **Redis** for long-running document ingestion and indexing jobs
 - [ ] Relational persistence: **PostgreSQL** with **SQLAlchemy 2.0 (asyncio)** and **Alembic** migrations
 
-### 52. LLM Serving & GPU Optimization
-- [ ] High-throughput LLM Serving Engines:
-  - **vLLM**:
-    - **PagedAttention**: Eliminates KV cache fragmentation by allocating memory in non-contiguous pages
-    - Continuous batching (iteration-level scheduling)
-  - **Triton Inference Server** (NVIDIA)
-  - **TensorRT-LLM**: Maximum GPU kernel optimization for NVIDIA hardware
-- [ ] Serving Metrics:
-  - **Time-to-First-Token (TTFT)**: Perceived responsiveness
-  - **Time-Per-Output-Token (TPOT)**: Generation speed (tokens/sec)
-  - **Throughput**: Total tokens generated per second across concurrent users
+### 52. LLM Serving, vLLM Production Tuning & SLM Edge Deployment
+- [ ] **vLLM Production Engineering & Advanced Tuning**:
+  - **Memory Configuration**:
+    - Setting `--gpu-memory-utilization` (0.90 to 0.95) to maximize KV cache allocation without OOM errors
+    - KV Cache Block Size: Configuring `--block-size 16` or `32` based on sequence length patterns
+    - Memory footprint calculation: Estimating concurrent request capacity given GPU VRAM and context length
+  - **Throughput & Latency Optimization**:
+    - Enabling Automatic Prefix Caching (`--enable-prefix-caching`) for shared system prompts and multi-turn dialogues
+    - Enabling Chunked Prefill (`--enable-chunked-prefill`) to interleave prompt evaluation with token generation
+    - Speculative Decoding in Production: Pairing a high-throughput target model with an ultra-fast draft SLM (`--speculative-model <draft_slm>` and `--num-speculative-tokens 5`)
+  - **Distributed GPU Scaling**:
+    - Multi-GPU Tensor Parallelism (`--tensor-parallel-size <n>`) for distributing large weights across single-node GPUs
+    - Multi-Node Pipeline Parallelism (`--pipeline-parallel-size <n>`)
+  - **Low-Bit Quantization in vLLM**:
+    - Serving FP8 checkpoints natively with minimal perplexity loss
+    - AWQ (Activation-aware Weight Quantization) and GPTQ 4-bit high-throughput serving
+  - **Production Observability & Monitoring**:
+    - Scraping vLLM Prometheus metrics: `vllm:num_requests_running`, `vllm:num_requests_waiting`, `vllm:gpu_cache_usage_factor`, `vllm:avg_generation_throughput_toks_per_s`
+- [ ] **Small Language Models (SLMs) & Edge Inference Deployment**:
+  - Deploying SLMs (Phi-3.5, Llama 3.2, Qwen 2.5) on resource-constrained devices
+  - **llama.cpp**: High-performance C++ GGUF inference with CPU AVX-512 and GPU offload
+  - **Apple Silicon (MLX)**: Native Unified Memory acceleration on macOS hardware
+  - **Mobile & Embedded Runtimes**: ONNX Runtime, ExecuTorch for on-device iOS and Android deployment
+- [ ] High-throughput Enterprise Serving Alternatives:
+  - **Triton Inference Server** (NVIDIA) with TensorRT-LLM backend
+  - **SGLang**: RadixAttention engine for high-density multi-turn chat applications
+- [ ] Serving Metrics & SLAs:
+  - **Time-to-First-Token (TTFT)**: Perceived responsiveness (<200ms target)
+  - **Time-Per-Output-Token (TPOT)**: Generation speed (30-80 tokens/sec target)
+  - **Concurrency & Throughput**: Requests per second and total tokens generated per second across concurrent sessions
 - [ ] Semantic Caching:
   - Caching LLM responses using vector similarity (**GPTCache**, Redis) to avoid re-generating answers for semantically identical questions
 - [ ] Model Routing & Gateways:
   - **LiteLLM**: Unified proxy interface with load balancing, fallback routing, and budget enforcement
-  - Dynamic model routing: Sending simple queries to small fast models (e.g., GPT-4o-mini, Claude 3.5 Haiku) and complex reasoning queries to frontier models (Claude 3.5 Sonnet, o1)
+  - Dynamic model routing: Sending simple queries to small fast models (e.g., Qwen 2.5 7B, Claude 3.5 Haiku) and complex reasoning queries to frontier reasoning models (DeepSeek-R1, o1, Claude 3.5 Sonnet)
 
 ### 53. DevOps, Infrastructure & Security
 - [ ] **Containerization**: Writing multi-stage `Dockerfile` configurations for Python AI apps, optimizing image sizes
